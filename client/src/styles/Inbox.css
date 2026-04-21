@@ -1159,7 +1159,9 @@ body {
    RESPONSIVE
    ====================================================== */
 @media (max-width: 1024px) {
-  --sidebar-width: 240px;
+  :root {
+    --sidebar-width: 240px;
+  }
 }
 
 @media (max-width: 768px) {
