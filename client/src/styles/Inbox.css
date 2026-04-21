@@ -425,6 +425,43 @@ body {
   letter-spacing: -0.02em;
 }
 
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0 4px 0 12px;
+  width: 100%;
+  max-width: 300px;
+  height: 40px;
+  transition: var(--transition);
+}
+.search-bar:focus-within {
+  border-color: var(--primary);
+  background: var(--white);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+.search-bar input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-primary);
+  padding: 8px 0;
+}
+.search-bar button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+}
+.search-bar button:hover { color: var(--primary); }
+
 .message-list-header-meta {
   display: flex;
   flex-direction: column;
@@ -560,7 +597,7 @@ body {
   margin-top: 2px;
 }
 
-.message-pagination {
+.message-list-pagination {
   padding: 14px 28px;
   border-top: 1px solid var(--border);
   display: flex;

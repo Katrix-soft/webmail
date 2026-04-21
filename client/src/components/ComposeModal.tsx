@@ -1,199 +1,153 @@
 import React, { useState } from "react";
+import "../styles/Inbox.css";
 
 interface ComposeModalProps {
   email: string;
-  onClose: () => void;
-  onSend: (data: {
+  initialData?: {
     to: string;
-    cc?: string;
-    bcc?: string;
     subject: string;
-    html: string;
     text: string;
-  }) => Promise<void>;
+  };
+  onClose: () => void;
+  onSend: (data: any) => Promise<void>;
 }
 
 export default function ComposeModal({
   email,
+  initialData,
   onClose,
   onSend,
 }: ComposeModalProps) {
-  const [to, setTo] = useState("");
+  const [to, setTo] = useState(initialData?.to || "");
   const [cc, setCc] = useState("");
   const [bcc, setBcc] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [subject, setSubject] = useState(initialData?.subject || "");
+  const [body, setBody] = useState(initialData?.text || "");
+  const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
-  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [showExtra, setShowExtra] = useState(false);
 
-  const handleSend = async () => {
-    if (!to.trim()) { setError("El campo 'Para' es obligatorio"); return; }
-    if (!subject.trim()) { setError("El asunto es obligatorio"); return; }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!to || !subject) {
+      setError("Destinatario y Asunto son requeridos");
+      return;
+    }
 
-    setLoading(true);
+    setIsSending(true);
     setError("");
     try {
-      await onSend({ to, cc: cc || undefined, bcc: bcc || undefined, subject, html: body, text: body });
-      onClose();
+      await onSend({
+        to,
+        cc,
+        bcc,
+        subject,
+        text: body,
+        html: `<div>${body.replace(/\n/g, "<br>")}</div>`,
+      });
     } catch (err: any) {
-      setError(err.response?.data?.error || "No se pudo enviar el correo");
+      setError(err.response?.data?.error || "Error al enviar el mensaje");
     } finally {
-      setLoading(false);
+      setIsSending(false);
     }
   };
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-card" role="dialog" aria-modal="true" aria-label="Redactar correo">
-        {/* Header */}
+    <div className="modal-overlay">
+      <div className="modal-card">
         <div className="modal-header">
-          <h2>Nuevo correo</h2>
-          <button
-            onClick={onClose}
-            className="modal-close-btn"
-            aria-label="Cerrar"
-            id="compose-close-btn"
-          >
+          <h2>Redactar Mensaje</h2>
+          <button className="modal-close-btn" onClick={onClose}>
             ✕
           </button>
         </div>
 
-        {/* Body */}
-        <div className="modal-body">
+        <form onSubmit={handleSubmit} className="modal-body">
           {error && <div className="alert-error">{error}</div>}
 
-          {/* From (readonly) */}
           <div className="form-group">
-            <label className="form-label">De</label>
-            <input
-              type="email"
-              value={email}
-              disabled
-              className="form-input"
-            />
-          </div>
-
-          {/* To */}
-          <div className="form-group">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <label className="form-label" htmlFor="compose-to">Para *</label>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <label className="form-label">Para</label>
               <button
                 type="button"
-                onClick={() => setShowCcBcc(!showCcBcc)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  color: "var(--primary)",
-                  fontWeight: 600,
-                  fontFamily: "inherit",
-                  padding: 0,
-                }}
+                className="btn-text-only"
+                onClick={() => setShowExtra(!showExtra)}
               >
-                {showCcBcc ? "Ocultar CC/BCC" : "CC / BCC"}
+                {showExtra ? "Ocultar CC/BCC" : "CC/BCC"}
               </button>
             </div>
             <input
-              id="compose-to"
-              type="email"
+              className="form-input"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              placeholder="destinatario@ejemplo.com"
-              className="form-input"
-              multiple
+              placeholder="ejemplo@correo.com"
+              disabled={isSending}
             />
           </div>
 
-          {/* CC / BCC (collapsible) */}
-          {showCcBcc && (
+          {showExtra && (
             <div className="form-grid-2">
               <div className="form-group">
-                <label className="form-label" htmlFor="compose-cc">CC</label>
+                <label className="form-label">CC</label>
                 <input
-                  id="compose-cc"
-                  type="email"
+                  className="form-input"
                   value={cc}
                   onChange={(e) => setCc(e.target.value)}
-                  placeholder="Opcional"
-                  className="form-input"
                 />
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="compose-bcc">BCC</label>
+                <label className="form-label">BCC</label>
                 <input
-                  id="compose-bcc"
-                  type="email"
+                  className="form-input"
                   value={bcc}
                   onChange={(e) => setBcc(e.target.value)}
-                  placeholder="Opcional"
-                  className="form-input"
                 />
               </div>
             </div>
           )}
 
-          {/* Subject */}
           <div className="form-group">
-            <label className="form-label" htmlFor="compose-subject">Asunto *</label>
+            <label className="form-label">Asunto</label>
             <input
-              id="compose-subject"
-              type="text"
+              className="form-input"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Asunto del correo"
-              className="form-input"
+              placeholder="Asunto del mensaje"
+              disabled={isSending}
             />
           </div>
 
-          {/* Message */}
           <div className="form-group">
-            <label className="form-label" htmlFor="compose-body">Mensaje *</label>
+            <label className="form-label">Mensaje</label>
             <textarea
-              id="compose-body"
+              className="form-textarea"
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="Escribí tu mensaje aquí…"
-              rows={10}
-              className="form-textarea"
+              placeholder="Escribe tu mensaje aquí..."
+              disabled={isSending}
             />
           </div>
 
-          {/* Footer */}
           <div className="modal-footer">
             <button
-              onClick={onClose}
-              disabled={loading}
+              type="button"
               className="btn-secondary"
-              id="compose-cancel-btn"
+              onClick={onClose}
+              disabled={isSending}
             >
               Cancelar
             </button>
-            <button
-              onClick={handleSend}
-              disabled={loading}
-              className="btn-primary"
-              id="compose-send-btn"
-            >
-              {loading ? (
-                <>
-                  <span style={{ display: "inline-block", marginRight: 6, verticalAlign: "middle" }}>
-                    ⏳
-                  </span>
-                  Enviando…
-                </>
-              ) : (
-                <>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ verticalAlign: "middle", marginRight: 6 }}>
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                  </svg>
-                  Enviar
-                </>
-              )}
+            <button type="submit" className="btn-primary" disabled={isSending}>
+              {isSending ? "Enviando..." : "Enviar Mensaje"}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     </div>
   );

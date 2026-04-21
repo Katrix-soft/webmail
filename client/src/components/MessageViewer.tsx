@@ -1,39 +1,25 @@
 import React, { useState } from "react";
+import axios from "axios";
+import "../styles/Inbox.css";
 
 interface Email {
   uid: number;
-  seqno: number;
   from: string;
   subject: string;
   text: string;
   html: string;
-  date: Date;
+  date: string;
   flags: string[];
-}
-
-interface Folder {
-  name: string;
-  unreadCount: number;
-  attributes: string[];
 }
 
 interface MessageViewerProps {
   email: Email;
-  folders: Folder[];
+  folders: any[];
   onBack: () => void;
   onDelete: () => void;
-  onMove: (folder: string) => void;
+  onMove: (to: string) => void;
+  onReply?: (email: Email) => void;
 }
-
-const FOLDER_LABELS: Record<string, string> = {
-  INBOX:           "Bandeja de entrada",
-  Sent:            "Enviados",
-  "Sent Messages": "Enviados",
-  Drafts:          "Borradores",
-  Trash:           "Papelera",
-  Junk:            "Spam",
-  Archive:         "Archivo",
-};
 
 export default function MessageViewer({
   email,
@@ -41,122 +27,108 @@ export default function MessageViewer({
   onBack,
   onDelete,
   onMove,
+  onReply,
 }: MessageViewerProps) {
   const [showMoveMenu, setShowMoveMenu] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [isRead, setIsRead] = useState(email.flags.includes("\\Seen"));
 
-  const handleDelete = async () => {
-    if (!window.confirm("¿Eliminar este correo?")) return;
-    setLoading(true);
+  const toggleRead = async () => {
     try {
-      await onDelete();
-    } finally {
-      setLoading(false);
+      const action = isRead ? "mark-unread" : "mark-read";
+      await axios.post(`/api/messages/INBOX/${email.uid}/${action}`);
+      setIsRead(!isRead);
+    } catch (error) {
+      console.error("Toggle read failed:", error);
     }
   };
 
-  const handleMove = async (folder: string) => {
-    setLoading(true);
-    try {
-      await onMove(folder);
-    } finally {
-      setLoading(false);
-      setShowMoveMenu(false);
-    }
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleString("es-AR", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   return (
     <div className="message-viewer-container">
-      {/* Toolbar */}
       <div className="message-viewer-header">
-        <button onClick={onBack} className="back-btn" id="back-btn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+        <button className="back-btn" onClick={onBack}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6"/>
           </svg>
           Volver
         </button>
 
         <div className="viewer-actions">
-          <button
-            onClick={handleDelete}
-            disabled={loading}
-            className="action-btn delete-btn"
-            id="delete-btn"
-            title="Eliminar"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+          <button className="action-btn" onClick={() => onReply?.(email)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
             </svg>
-            Eliminar
+            Responder
+          </button>
+
+          <button className="action-btn" onClick={toggleRead}>
+            {isRead ? "Marcar no leído" : "Marcar como leído"}
           </button>
 
           <div style={{ position: "relative" }}>
             <button
-              onClick={() => setShowMoveMenu(!showMoveMenu)}
               className="action-btn"
-              id="move-btn"
-              title="Mover a carpeta"
+              onClick={() => setShowMoveMenu(!showMoveMenu)}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
-              </svg>
-              Mover
+              Mover a
             </button>
-
             {showMoveMenu && (
               <div className="move-menu">
-                {folders.map((folder) => (
+                {folders.map((f) => (
                   <button
-                    key={folder.name}
-                    onClick={() => handleMove(folder.name)}
+                    key={f.name}
                     className="move-menu-item"
+                    onClick={() => {
+                      onMove(f.name);
+                      setShowMoveMenu(false);
+                    }}
                   >
-                    {FOLDER_LABELS[folder.name] ?? folder.name}
+                    {f.name}
                   </button>
                 ))}
               </div>
             )}
           </div>
+
+          <button className="action-btn delete-btn" onClick={onDelete}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+            </svg>
+            Eliminar
+          </button>
         </div>
       </div>
 
-      {/* Content */}
       <div className="message-content">
         <div className="message-meta">
-          <h2 className="message-subject-title">
-            {email.subject || "(Sin asunto)"}
-          </h2>
+          <h1 className="message-subject-title">{email.subject || "(Sin asunto)"}</h1>
           <div className="message-meta-row">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--text-muted)", flexShrink: 0 }}>
-              <path d="M20 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-            </svg>
-            De: <strong>{email.from}</strong>
+            <strong>De:</strong> {email.from}
           </div>
           <div className="message-meta-row">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--text-muted)", flexShrink: 0 }}>
-              <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/>
-            </svg>
-            {new Date(email.date).toLocaleString("es-AR", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            <strong>Fecha:</strong> {formatDate(email.date)}
           </div>
         </div>
 
         <div className="message-body">
           {email.html ? (
             <iframe
-              srcDoc={email.html}
+              title="Email Content"
               className="html-iframe"
-              title="Contenido del correo"
-              sandbox={"allow-same-origin" as any}
+              srcDoc={email.html}
             />
           ) : (
-            <pre className="text-body">{email.text}</pre>
+            <div className="text-body">{email.text}</div>
           )}
         </div>
       </div>

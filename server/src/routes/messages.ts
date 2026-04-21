@@ -27,6 +27,28 @@ router.get("/:folder", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/:folder/search", async (req: Request, res: Response) => {
+  try {
+    const folder = decodeURIComponent(req.params.folder);
+    const query = req.query.q as string;
+
+    if (!query) {
+      return res.status(400).json({ error: "Search query required" });
+    }
+
+    const imap = new ImapService(req.session.email!, req.session.password!);
+    await imap.connect();
+
+    const emails = await imap.searchEmails(folder, query);
+
+    await imap.disconnect();
+    res.json(emails);
+  } catch (error: any) {
+    console.error("Search error:", error);
+    res.status(500).json({ error: "Failed to search messages" });
+  }
+});
+
 router.get("/:folder/:uid", async (req: Request, res: Response) => {
   try {
     const folder = decodeURIComponent(req.params.folder);
@@ -92,6 +114,34 @@ router.post("/:folder/:uid/move", async (req: Request, res: Response) => {
     res.status(500).json({
       error: "Failed to move message",
     });
+  }
+});
+
+router.post("/:folder/:uid/mark-read", async (req: Request, res: Response) => {
+  try {
+    const folder = decodeURIComponent(req.params.folder);
+    const uid = parseInt(req.params.uid);
+    const imap = new ImapService(req.session.email!, req.session.password!);
+    await imap.connect();
+    await imap.markAsRead(folder, uid);
+    await imap.disconnect();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to mark as read" });
+  }
+});
+
+router.post("/:folder/:uid/mark-unread", async (req: Request, res: Response) => {
+  try {
+    const folder = decodeURIComponent(req.params.folder);
+    const uid = parseInt(req.params.uid);
+    const imap = new ImapService(req.session.email!, req.session.password!);
+    await imap.connect();
+    await imap.markAsUnread(folder, uid);
+    await imap.disconnect();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to mark as unread" });
   }
 });
 

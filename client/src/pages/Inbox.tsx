@@ -14,12 +14,11 @@ interface Folder {
 
 interface Email {
   uid: number;
-  seqno: number;
   from: string;
   subject: string;
   text: string;
   html: string;
-  date: Date;
+  date: string;
   flags: string[];
 }
 
@@ -32,9 +31,9 @@ export default function Inbox({ email, onLogout }: InboxProps) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [selectedFolder, setSelectedFolder] = useState("INBOX");
   const [showCompose, setShowCompose] = useState(false);
+  const [composeInitialData, setComposeInitialData] = useState<any>(null);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadFolders();
@@ -54,14 +53,13 @@ export default function Inbox({ email, onLogout }: InboxProps) {
       await axios.post("/api/auth/logout");
       onLogout();
     } catch (error) {
-      console.error("Logout error:", error);
       onLogout();
     }
   };
 
   const handleSelectEmail = (e: Email) => {
     setSelectedEmail(e);
-    setIsSidebarOpen(false); // Close sidebar on mobile when selecting email
+    setIsSidebarOpen(false);
   };
 
   const handleDeleteEmail = async () => {
@@ -91,33 +89,28 @@ export default function Inbox({ email, onLogout }: InboxProps) {
     }
   };
 
-  const handleSendEmail = async (data: {
-    to: string;
-    cc?: string;
-    bcc?: string;
-    subject: string;
-    html: string;
-    text: string;
-  }) => {
-    try {
-      await axios.post("/api/compose/send", data);
-      setShowCompose(false);
-      loadFolders();
-    } catch (error) {
-      console.error("Send failed:", error);
-      throw error;
-    }
+  const handleReply = (email: Email) => {
+    const fromMatch = email.from.match(/<(.+?)>/) || [null, email.from];
+    const to = fromMatch[1] || email.from;
+    
+    setComposeInitialData({
+      to,
+      subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`,
+      text: `\n\n--- El ${new Date(email.date).toLocaleString()} escribió ---\n\n${email.text}`,
+    });
+    setShowCompose(true);
+  };
+
+  const handleSendEmail = async (data: any) => {
+    await axios.post("/api/compose/send", data);
+    setShowCompose(false);
+    setComposeInitialData(null);
+    loadFolders();
   };
 
   return (
     <div className="inbox-container">
-      {/* Mobile Overlay */}
-      {isSidebarOpen && (
-        <div 
-          className="sidebar-overlay" 
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
+      {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)} />}
 
       <div className={`sidebar-wrapper ${isSidebarOpen ? 'open' : ''}`}>
         <Sidebar
@@ -130,6 +123,7 @@ export default function Inbox({ email, onLogout }: InboxProps) {
             setSelectedEmail(null);
           }}
           onCompose={() => {
+            setComposeInitialData(null);
             setShowCompose(true);
             setIsSidebarOpen(false);
           }}
@@ -138,13 +132,8 @@ export default function Inbox({ email, onLogout }: InboxProps) {
       </div>
 
       <div className="inbox-content">
-        {/* Mobile Header */}
         <div className="mobile-header">
-          <button 
-            className="menu-toggle"
-            onClick={() => setIsSidebarOpen(true)}
-            aria-label="Menu"
-          >
+          <button className="menu-toggle" onClick={() => setIsSidebarOpen(true)}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
               <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
             </svg>
@@ -156,9 +145,13 @@ export default function Inbox({ email, onLogout }: InboxProps) {
           <MessageViewer
             email={selectedEmail}
             folders={folders}
-            onBack={() => setSelectedEmail(null)}
+            onBack={() => {
+              setSelectedEmail(null);
+              loadFolders(); // Reload to refresh read status
+            }}
             onDelete={handleDeleteEmail}
             onMove={handleMoveEmail}
+            onReply={handleReply}
           />
         ) : (
           <MessageList
@@ -171,7 +164,11 @@ export default function Inbox({ email, onLogout }: InboxProps) {
       {showCompose && (
         <ComposeModal
           email={email}
-          onClose={() => setShowCompose(false)}
+          initialData={composeInitialData}
+          onClose={() => {
+            setShowCompose(false);
+            setComposeInitialData(null);
+          }}
           onSend={handleSendEmail}
         />
       )}

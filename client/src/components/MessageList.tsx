@@ -1,169 +1,157 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import "../styles/Inbox.css";
 
 interface Email {
   uid: number;
-  seqno: number;
   from: string;
   subject: string;
   text: string;
-  html: string;
-  date: Date;
+  date: string;
   flags: string[];
 }
 
 interface MessageListProps {
   folder: string;
-  onSelectEmail: (email: Email) => void;
+  onSelectEmail: (email: any) => void;
 }
-
-const FOLDER_LABELS: Record<string, string> = {
-  INBOX:           "Bandeja de entrada",
-  Sent:            "Enviados",
-  "Sent Messages": "Enviados",
-  Drafts:          "Borradores",
-  Trash:           "Papelera",
-  Deleted:         "Eliminados",
-  Junk:            "Spam",
-  Archive:         "Archivo",
-};
-
-function formatDate(dateString: string | Date): string {
-  const date = new Date(dateString);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  if (date.toDateString() === today.toDateString()) {
-    return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-  } else if (date.toDateString() === yesterday.toDateString()) {
-    return "Ayer";
-  } else {
-    return date.toLocaleDateString("es-AR", { day: "numeric", month: "short" });
-  }
-}
-
-function formatSender(from: string): string {
-  // Extract "Name" from "Name <email>" or return the raw string
-  const match = from.match(/^"?([^"<]+)"?\s*</);
-  return match ? match[1].trim() : from;
-}
-
-const isUnread = (flags: string[]) => !flags.includes("\\Seen");
 
 export default function MessageList({ folder, onSelectEmail }: MessageListProps) {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
+  const limit = 20;
 
   useEffect(() => {
     setPage(0);
+    fetchEmails();
   }, [folder]);
 
   useEffect(() => {
-    loadMessages();
-  }, [folder, page]);
+    if (!searchQuery) {
+      fetchEmails();
+    }
+  }, [page]);
 
-  const loadMessages = async () => {
+  const fetchEmails = async () => {
     setLoading(true);
     try {
       const response = await axios.get(
-        `/api/messages/${encodeURIComponent(folder)}?limit=50&offset=${page * 50}`
+        `/api/messages/${encodeURIComponent(folder)}?limit=${limit}&offset=${page * limit}`
       );
       setEmails(response.data);
     } catch (error) {
-      console.error("Failed to load messages:", error);
-      setEmails([]);
+      console.error("Failed to fetch emails:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  const folderLabel = FOLDER_LABELS[folder] ?? folder;
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) {
+      fetchEmails();
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await axios.get(
+        `/api/messages/${encodeURIComponent(folder)}/search?q=${encodeURIComponent(searchQuery)}`
+      );
+      setEmails(response.data);
+    } catch (error) {
+      console.error("Search failed:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (loading && emails.length === 0) {
-    return (
-      <div className="message-list-container">
-        <div className="loading-screen" style={{ flex: 1 }}>
-          <div className="loading-inner">
-            <div className="spinner" />
-            <p>Cargando mensajes…</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    if (date.toDateString() === now.toDateString()) {
+      return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    }
+    return date.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+  };
+
+  const cleanSenderName = (from: string) => {
+    const match = from.match(/^"?(.*?)"?\s*<.*>$/);
+    return match ? match[1] : from.split("<")[0].trim();
+  };
 
   return (
     <div className="message-list-container">
-      {/* Header */}
       <div className="message-list-header">
         <div className="message-list-header-meta">
-          <h2>{folderLabel}</h2>
+          <h2>{folder}</h2>
+          <span className="email-count-badge">{emails.length} mensajes</span>
         </div>
-        <span className="email-count-badge">
-          {emails.length} {emails.length === 1 ? "mensaje" : "mensajes"}
-        </span>
+        
+        <form className="search-bar" onSubmit={handleSearch}>
+          <input
+            type="text"
+            placeholder="Buscar en esta carpeta..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <button type="submit">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+          </button>
+        </form>
       </div>
 
-      {/* Empty state */}
-      {emails.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">📭</div>
-          <p>Esta carpeta está vacía</p>
-        </div>
-      ) : (
-        <>
-          <div className="message-list">
-            {emails.map((email) => {
-              const unread = isUnread(email.flags);
-              return (
-                <div
-                  key={`${email.uid}-${email.seqno}`}
-                  onClick={() => onSelectEmail(email)}
-                  className={`message-item ${unread ? "unread" : ""}`}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && onSelectEmail(email)}
-                >
-                  <div className="message-sender">
-                    {unread && <div className="unread-dot" />}
-                    <span className="sender-name">{formatSender(email.from)}</span>
-                  </div>
-                  <div className="message-date">{formatDate(email.date)}</div>
-                  <div className="message-subject">
-                    {email.subject || "(Sin asunto)"}
-                  </div>
-                  {email.text && (
-                    <div className="message-preview">
-                      {email.text.substring(0, 120)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+      <div className="message-list">
+        {loading ? (
+          <div className="empty-state">
+            <div className="spinner"></div>
+            <p>Cargando mensajes...</p>
           </div>
+        ) : emails.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">📭</div>
+            <p>No hay mensajes aquí</p>
+          </div>
+        ) : (
+          emails.map((email) => (
+            <div
+              key={email.uid}
+              className={`message-item ${email.flags.includes("\\Seen") ? "" : "unread"}`}
+              onClick={() => onSelectEmail(email)}
+            >
+              <div className="message-sender">
+                {!email.flags.includes("\\Seen") && <div className="unread-dot"></div>}
+                <span className="sender-name">{cleanSenderName(email.from)}</span>
+              </div>
+              <div className="message-date">{formatDate(email.date)}</div>
+              <div className="message-subject">{email.subject || "(Sin asunto)"}</div>
+              <div className="message-preview">{email.text.slice(0, 100)}...</div>
+            </div>
+          ))
+        )}
+      </div>
 
-          <div className="message-pagination">
-            <button
-              onClick={() => setPage(Math.max(0, page - 1))}
-              disabled={page === 0}
-              className="pagination-btn"
-              id="prev-page-btn"
-            >
-              ← Anterior
-            </button>
-            <span className="page-indicator">Página {page + 1}</span>
-            <button
-              onClick={() => setPage(page + 1)}
-              disabled={emails.length < 50}
-              className="pagination-btn"
-              id="next-page-btn"
-            >
-              Siguiente →
-            </button>
-          </div>
-        </>
+      {!searchQuery && (
+        <div className="message-list-pagination">
+          <button 
+            disabled={page === 0} 
+            onClick={() => setPage(page - 1)}
+            className="pagination-btn"
+          >
+            Anterior
+          </button>
+          <span className="page-indicator">Página {page + 1}</span>
+          <button 
+            disabled={emails.length < limit} 
+            onClick={() => setPage(page + 1)}
+            className="pagination-btn"
+          >
+            Siguiente
+          </button>
+        </div>
       )}
     </div>
   );
