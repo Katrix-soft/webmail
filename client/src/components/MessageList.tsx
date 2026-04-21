@@ -2,6 +2,10 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "../styles/Inbox.css";
 
+interface Attachment {
+  filename: string;
+}
+
 interface Email {
   uid: number;
   from: string;
@@ -9,6 +13,7 @@ interface Email {
   text: string;
   date: string;
   flags: string[];
+  attachments?: Attachment[];
 }
 
 interface MessageListProps {
@@ -85,14 +90,14 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
     <div className="message-list-container">
       <div className="message-list-header">
         <div className="message-list-header-meta">
-          <h2>{folder}</h2>
+          <h2>{folder === "INBOX" ? "Bandeja de Entrada" : folder}</h2>
           <span className="email-count-badge">{emails.length} mensajes</span>
         </div>
         
         <form className="search-bar" onSubmit={handleSearch}>
           <input
             type="text"
-            placeholder="Buscar en esta carpeta..."
+            placeholder="Buscar mensajes..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -125,10 +130,15 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
               <div className="message-sender">
                 {!email.flags.includes("\\Seen") && <div className="unread-dot"></div>}
                 <span className="sender-name">{cleanSenderName(email.from)}</span>
+                {email.attachments && email.attachments.length > 0 && (
+                  <span className="attachment-indicator" title="Tiene adjuntos">
+                    📎
+                  </span>
+                )}
               </div>
               <div className="message-date">{formatDate(email.date)}</div>
               <div className="message-subject">{email.subject || "(Sin asunto)"}</div>
-              <div className="message-preview">{email.text.slice(0, 100)}...</div>
+              <div className="message-preview">{email.text?.slice(0, 80)}...</div>
             </div>
           ))
         )}

@@ -1,6 +1,14 @@
 import Imap from "imap";
 import { simpleParser } from "mailparser";
 
+export interface Attachment {
+  partId: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  content?: Buffer;
+}
+
 export interface ImapEmail {
   uid: number;
   seqno: number;
@@ -10,6 +18,7 @@ export interface ImapEmail {
   html: string;
   date: Date;
   flags: string[];
+  attachments?: Attachment[];
 }
 
 export interface ImapFolder {
@@ -50,8 +59,11 @@ export class ImapService {
           else resolve();
         });
       });
-      this.imap!.on("error", reject);
-      this.imap!.openImap();
+      this.imap!.on("error", (err) => {
+        console.error("IMAP Error:", err);
+        reject(err);
+      });
+      this.imap!.connect();
     });
   }
 
@@ -82,14 +94,14 @@ export class ImapService {
           });
 
           if (box.children) {
-            Object.values(box.children).forEach((child: any) => {
-              traverse(child, [...path, box.name]);
+            Object.keys(box.children).forEach((key) => {
+              traverse(box.children[key], [...path, box.name]);
             });
           }
         };
 
-        Object.values(boxes).forEach((box: any) => {
-          traverse(box);
+        Object.keys(boxes).forEach((key) => {
+          traverse(boxes[key]);
         });
 
         resolve(folders);
@@ -105,7 +117,7 @@ export class ImapService {
     if (!this.imap) throw new Error("Not connected to IMAP");
 
     return new Promise((resolve, reject) => {
-      this.imap!.openBox(folderName, false, (err, mailbox) => {
+      this.imap!.openBox(folderName, true, (err, mailbox) => {
         if (err) return reject(err);
 
         const totalMessages = mailbox.messages.total;
@@ -132,6 +144,7 @@ export class ImapService {
             html: "",
             date: new Date(),
             flags: [],
+            attachments: [],
           };
 
           msg.on("attributes", (attrs) => {
@@ -147,6 +160,15 @@ export class ImapService {
                 email.text = parsed.text || "";
                 email.html = parsed.html || "";
                 email.date = parsed.date || new Date();
+                
+                if (parsed.attachments) {
+                  email.attachments = parsed.attachments.map((att: any, idx: number) => ({
+                    partId: (idx + 1).toString(),
+                    filename: att.filename || "unnamed",
+                    contentType: att.contentType,
+                    size: att.size,
+                  }));
+                }
               }
               emails.push(email);
               pending--;
@@ -164,44 +186,78 @@ export class ImapService {
     });
   }
 
-  async searchEmails(folderName: string, query: string): Promise<ImapEmail[]> {
+  async getEmail(folderName: string, uid: number): Promise<ImapEmail> {
     if (!this.imap) throw new Error("Not connected to IMAP");
 
     return new Promise((resolve, reject) => {
-      this.imap!.openBox(folderName, false, (err) => {
+      this.imap!.openBox(folderName, true, (err) => {
         if (err) return reject(err);
 
-        // Simple search by subject OR from OR body
+        const f = this.imap!.fetch(uid, { bodies: "" });
+        let email: ImapEmail | null = null;
+        let pending = 0;
+
+        f.on("message", (msg, seqno) => {
+          pending++;
+          email = { uid, seqno, from: "", subject: "", text: "", html: "", date: new Date(), flags: [], attachments: [] };
+          msg.on("attributes", (attrs) => { if(email) email.flags = attrs.flags; });
+          msg.on("body", (stream) => {
+            simpleParser(stream, (err, parsed) => {
+              if (!err && parsed && email) {
+                email.from = parsed.from?.text || "";
+                email.subject = parsed.subject || "";
+                email.text = parsed.text || "";
+                email.html = parsed.html || "";
+                email.date = parsed.date || new Date();
+                if (parsed.attachments) {
+                  email.attachments = parsed.attachments.map((att: any, idx: number) => ({
+                    partId: (idx + 1).toString(),
+                    filename: att.filename || "unnamed",
+                    contentType: att.contentType,
+                    size: att.size,
+                    content: att.content, // Include content for single fetch if needed
+                  }));
+                }
+              }
+              pending--;
+              if (pending === 0) resolve(email!);
+            });
+          });
+        });
+
+        f.on("error", reject);
+        f.on("end", () => { if (pending === 0 && email) resolve(email); });
+      });
+    });
+  }
+
+  async searchEmails(folderName: string, query: string): Promise<ImapEmail[]> {
+    if (!this.imap) throw new Error("Not connected to IMAP");
+    return new Promise((resolve, reject) => {
+      this.imap!.openBox(folderName, true, (err) => {
+        if (err) return reject(err);
         this.imap!.search([['OR', ['SUBJECT', query], ['FROM', query]]], (err, uids) => {
           if (err) return reject(err);
           if (uids.length === 0) return resolve([]);
-
-          // Fetch the found emails
           const f = this.imap!.fetch(uids, { bodies: "" });
           const emails: ImapEmail[] = [];
           let pending = 0;
           let finished = false;
-
           f.on("message", (msg, seqno) => {
             pending++;
-            let email: ImapEmail = { uid: 0, seqno, from: "", subject: "", text: "", html: "", date: new Date(), flags: [] };
-            msg.on("attributes", (attrs) => { email.uid = attrs.uid; email.flags = attrs.flags; });
+            let e: ImapEmail = { uid: 0, seqno, from: "", subject: "", text: "", html: "", date: new Date(), flags: [], attachments: [] };
+            msg.on("attributes", (attrs) => { e.uid = attrs.uid; e.flags = attrs.flags; });
             msg.on("body", (stream) => {
               simpleParser(stream, (err, parsed) => {
                 if (!err && parsed) {
-                  email.from = parsed.from?.text || "";
-                  email.subject = parsed.subject || "";
-                  email.text = parsed.text || "";
-                  email.html = parsed.html || "";
-                  email.date = parsed.date || new Date();
+                  e.from = parsed.from?.text || ""; e.subject = parsed.subject || "";
+                  e.text = parsed.text || ""; e.html = parsed.html || ""; e.date = parsed.date || new Date();
                 }
-                emails.push(email);
-                pending--;
+                emails.push(e); pending--;
                 if (finished && pending === 0) resolve(emails.reverse());
               });
             });
           });
-
           f.on("end", () => { finished = true; if (pending === 0) resolve(emails.reverse()); });
           f.on("error", reject);
         });
@@ -240,7 +296,6 @@ export class ImapService {
     return new Promise((resolve, reject) => {
       this.imap!.openBox(folderName, false, (err) => {
         if (err) return reject(err);
-        // Move to Trash instead of hard delete if possible, but for simplicity we add Deleted flag and expunge
         this.imap!.addFlags(uid, ["\\Deleted"], (err) => {
           if (err) return reject(err);
           this.imap!.expunge((err) => {

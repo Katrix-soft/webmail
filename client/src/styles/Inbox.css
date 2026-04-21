@@ -1192,6 +1192,73 @@ body {
   max-width: 50px;
 }
 
+/* ── Attachments ── */
+.attachments-section {
+  margin: 16px 0 24px;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.attachments-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.attachments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.attachment-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+.attachment-icon {
+  font-size: 20px;
+}
+.attachment-info {
+  flex: 1;
+  min-width: 0;
+}
+.attachment-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-size {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.attachment-download-icon {
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+.attachment-card:hover .attachment-download-icon { opacity: 1; }
+
+.attachment-indicator {
+  display: inline-flex;
+  margin-left: 6px;
+  color: var(--text-muted);
+}
+
 /* ======================================================
    RESPONSIVE
    ====================================================== */

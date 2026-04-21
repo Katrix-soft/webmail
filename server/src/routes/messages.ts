@@ -145,4 +145,29 @@ router.post("/:folder/:uid/mark-unread", async (req: Request, res: Response) => 
   }
 });
 
+router.get("/:folder/:uid/attachments/:partId", async (req: Request, res: Response) => {
+  try {
+    const folder = decodeURIComponent(req.params.folder);
+    const uid = parseInt(req.params.uid);
+    const partId = req.params.partId;
+
+    const imap = new ImapService(req.session.email!, req.session.password!);
+    await imap.connect();
+    const email = await imap.getEmail(folder, uid);
+    await imap.disconnect();
+
+    const attachment = email.attachments?.find((att: any) => att.partId === partId);
+    if (!attachment || !attachment.content) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+
+    res.setHeader("Content-Type", attachment.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${attachment.filename}"`);
+    res.send(attachment.content);
+  } catch (error) {
+    console.error("Attachment download error:", error);
+    res.status(500).json({ error: "Failed to download attachment" });
+  }
+});
+
 export default router;

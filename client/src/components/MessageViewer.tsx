@@ -2,6 +2,13 @@ import React, { useState } from "react";
 import axios from "axios";
 import "../styles/Inbox.css";
 
+interface Attachment {
+  partId: string;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
 interface Email {
   uid: number;
   from: string;
@@ -10,6 +17,7 @@ interface Email {
   html: string;
   date: string;
   flags: string[];
+  attachments?: Attachment[];
 }
 
 interface MessageViewerProps {
@@ -42,6 +50,25 @@ export default function MessageViewer({
     }
   };
 
+  const handleDownload = async (partId: string, filename: string) => {
+    try {
+      const response = await axios.get(
+        `/api/messages/INBOX/${email.uid}/attachments/${partId}`,
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert("Error al descargar el archivo");
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString("es-AR", {
       weekday: "long",
@@ -51,6 +78,14 @@ export default function MessageViewer({
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
   return (
@@ -119,6 +154,24 @@ export default function MessageViewer({
             <strong>Fecha:</strong> {formatDate(email.date)}
           </div>
         </div>
+
+        {email.attachments && email.attachments.length > 0 && (
+          <div className="attachments-section">
+            <h3 className="attachments-title">Adjuntos ({email.attachments.length})</h3>
+            <div className="attachments-grid">
+              {email.attachments.map((att) => (
+                <div key={att.partId} className="attachment-card" onClick={() => handleDownload(att.partId, att.filename)}>
+                  <div className="attachment-icon">📁</div>
+                  <div className="attachment-info">
+                    <div className="attachment-name">{att.filename}</div>
+                    <div className="attachment-size">{formatSize(att.size)}</div>
+                  </div>
+                  <div className="attachment-download-icon">⬇️</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="message-body">
           {email.html ? (
