@@ -1,5 +1,11 @@
 import nodemailer from "nodemailer";
 
+interface Attachment {
+  filename: string;
+  content: any;
+  contentType?: string;
+}
+
 export class SmtpService {
   private transporter: nodemailer.Transporter | null = null;
   private email: string = "";
@@ -26,7 +32,8 @@ export class SmtpService {
     bcc: string = "",
     subject: string,
     html: string,
-    text: string
+    text: string,
+    attachments: Attachment[] = []
   ): Promise<string> {
     if (!this.transporter) throw new Error("SMTP not initialized");
 
@@ -36,6 +43,7 @@ export class SmtpService {
       subject,
       html,
       text,
+      attachments,
     };
 
     if (cc) mailOptions.cc = cc;
