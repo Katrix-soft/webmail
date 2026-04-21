@@ -3,7 +3,7 @@ import axios from "axios";
 import "../styles/Inbox.css";
 
 interface Attachment { filename: string; }
-interface Email { uid: number; from: string; subject: string; text: string; date: string; flags: string[]; attachments?: Attachment[]; }
+interface Email { uid: number; seqno: number; from: string; subject: string; text: string; date: string; flags: string[]; attachments?: Attachment[]; }
 interface MessageListProps { folder: string; onSelectEmail: (email: any) => void; }
 
 export default function MessageList({ folder, onSelectEmail }: MessageListProps) {
@@ -13,15 +13,25 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
   const [page, setPage] = useState(0);
   const limit = 20;
 
-  useEffect(() => { setPage(0); fetchEmails(); }, [folder]);
-  useEffect(() => { if (!searchQuery) fetchEmails(); }, [page]);
+  useEffect(() => {
+    setPage(0);
+    fetch();
+  }, [folder]);
 
-  const fetchEmails = async () => {
+  useEffect(() => {
+    if (!searchQuery) fetch();
+  }, [page]);
+
+  const fetch = async () => {
     setLoading(true);
     try {
       const response = await axios.get(`/api/messages/${encodeURIComponent(folder)}?limit=${limit}&offset=${page * limit}`);
       setEmails(response.data);
-    } catch (error) { console.error(error); } finally { setLoading(false); }
+    } catch (error) { 
+      console.error("Fetch error:", error); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const toggleStar = async (e: React.MouseEvent, email: Email) => {
@@ -34,13 +44,23 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
     } catch (error) { console.error(error); }
   };
 
+  const getSpanishTitle = (name: string) => {
+    const n = name.toUpperCase();
+    if (n === "INBOX") return "Bandeja de Entrada";
+    if (n === "SENT" || n === "SENT MESSAGES") return "Enviados";
+    if (n === "TRASH" || n === "DELETED MESSAGES") return "Papelera";
+    if (n === "SPAM" || n === "JUNK") return "Spam";
+    return name;
+  };
+
   const cleanSenderName = (from: string) => {
+    if (!from) return "(Remitente desconocido)";
     const match = from.match(/^"?(.*?)"?\s*<.*>$/);
     return match ? match[1] : from.split("<")[0].trim();
   };
 
   const getAvatarColor = (name: string) => {
-    const colors = ["#008B8B", "#2D2D2D", "#E63946", "#457B9D", "#1D3557", "#2A9D8F", "#E9C46A", "#F4A261", "#E76F51"];
+    const colors = ["#008B8B", "#457B9D", "#E63946", "#2A9D8F", "#E9C46A", "#F4A261", "#E76F51", "#2D2D2D"];
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
     return colors[Math.abs(hash) % colors.length];
@@ -50,23 +70,31 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
     <div className="message-list-container">
       <div className="message-list-header">
         <div className="message-list-header-meta">
-          <h2>{folder === "INBOX" ? "Recibidos" : folder}</h2>
+          <h2>{getSpanishTitle(folder)}</h2>
           {!loading && <span className="email-count-badge">{emails.length} mensajes</span>}
         </div>
-        <form className="search-bar" onSubmit={(e) => { e.preventDefault(); fetchEmails(); }}>
-          <input type="text" placeholder="Buscar..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-          <button type="submit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
+        <form className="search-bar" onSubmit={(e) => { e.preventDefault(); fetch(); }}>
+          <input type="text" placeholder="Buscar en esta carpeta..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          <button type="submit">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          </button>
         </form>
       </div>
 
       <div className="message-list">
         {loading ? (
-          <div className="empty-state"><div className="spinner"></div><p>Cargando...</p></div>
+          <div className="empty-state"><div className="spinner"></div><p>Sincronizando correos...</p></div>
+        ) : emails.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">📭</div>
+            <p>No tienes mensajes en {getSpanishTitle(folder)}</p>
+          </div>
         ) : (
           emails.map((email) => {
             const sender = cleanSenderName(email.from);
+            const isUnread = !email.flags.includes("\\Seen");
             return (
-              <div key={email.uid} className={`message-item ${email.flags.includes("\\Seen") ? "" : "unread"}`} onClick={() => onSelectEmail(email)}>
+              <div key={email.uid || email.seqno} className={`message-item ${isUnread ? "unread" : ""}`} onClick={() => onSelectEmail(email)}>
                 <div className="message-list-left">
                   <div className={`star-icon ${email.flags.includes("\\Flagged") ? "starred" : ""}`} onClick={(e) => toggleStar(e, email)}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill={email.flags.includes("\\Flagged") ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
@@ -79,13 +107,21 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
                 </div>
                 <div className="message-subject-preview">
                   <span className="subject-text">{email.subject || "(Sin asunto)"}</span>
-                  <span className="preview-text"> — {email.text?.slice(0, 80)}...</span>
+                  <span className="preview-text"> — {email.text?.slice(0, 100).replace(/\s+/g, ' ')}...</span>
                 </div>
-                <div className="message-date">{new Date(email.date).toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}</div>
+                <div className="message-date">
+                   {new Date(email.date).toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}
+                </div>
               </div>
             );
           })
         )}
+      </div>
+
+      <div className="message-list-pagination">
+          <button disabled={page === 0} onClick={() => setPage(page - 1)} className="pagination-btn">Anterior</button>
+          <span className="page-indicator">Página {page + 1}</span>
+          <button disabled={loading || emails.length < limit} onClick={() => setPage(page + 1)} className="pagination-btn">Siguiente</button>
       </div>
     </div>
   );

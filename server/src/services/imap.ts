@@ -54,13 +54,14 @@ export class ImapService {
     this.imap = this.createImap();
     return new Promise((resolve, reject) => {
       this.imap!.on("ready", () => {
-        this.imap!.openBox("INBOX", false, (err) => {
+        // Just verify we can open INBOX
+        this.imap!.openBox("INBOX", true, (err) => {
           if (err) reject(err);
           else resolve();
         });
       });
       this.imap!.on("error", (err) => {
-        console.error("IMAP Error:", err);
+        console.error("IMAP Connection Error:", err);
         reject(err);
       });
       this.imap!.connect();
@@ -69,82 +70,101 @@ export class ImapService {
 
   async disconnect(): Promise<void> {
     if (this.imap) {
-      return new Promise((resolve, reject) => {
-        this.imap!.end();
-        resolve();
-      });
+      this.imap!.end();
     }
   }
 
   async listFolders(): Promise<ImapFolder[]> {
-    if (!this.imap) throw new Error("Not connected to IMAP");
+    if (!this.imap) throw new Error("Not connected");
     return new Promise((resolve, reject) => {
       this.imap!.getBoxes((err, boxes) => {
         if (err) return reject(err);
         const folders: ImapFolder[] = [];
         const traverse = (box: any, path: string[] = []) => {
-          const fullPath = [...path, box.name].join(box.delimiter);
+          const fullPath = [...path, box.name].join(box.delimiter || "/");
           folders.push({ name: fullPath, unreadCount: 0, attributes: box.attribs || [] });
           if (box.children) {
-            Object.keys(box.children).forEach((key) => {
-              traverse(box.children[key], [...path, box.name]);
-            });
+            Object.keys(box.children).forEach(k => traverse(box.children[k], [...path, box.name]));
           }
         };
-        Object.keys(boxes).forEach((key) => traverse(boxes[key]));
+        Object.keys(boxes).forEach(k => traverse(boxes[k]));
         resolve(folders);
       });
     });
   }
 
   async fetchEmails(folderName: string, limit: number = 50, offset: number = 0): Promise<ImapEmail[]> {
-    if (!this.imap) throw new Error("Not connected to IMAP");
+    if (!this.imap) throw new Error("Not connected");
+    
+    // Normalize folder name if it's "Recibidos" from some old state, though it shouldn't happen
+    const folder = folderName === "Recibidos" ? "INBOX" : folderName;
+
     return new Promise((resolve, reject) => {
-      this.imap!.openBox(folderName, true, (err, mailbox) => {
-        if (err) return reject(err);
-        const totalMessages = mailbox.messages.total;
-        if (totalMessages === 0) return resolve([]);
-        const start = Math.max(1, totalMessages - offset - limit + 1);
-        const end = totalMessages - offset;
+      this.imap!.openBox(folder, true, (err, mailbox) => {
+        if (err) {
+          console.error(`Error opening box ${folder}:`, err);
+          return resolve([]); // Return empty rather than crashing if folder missing
+        }
+
+        const total = mailbox.messages.total;
+        if (total === 0) return resolve([]);
+
+        const start = Math.max(1, total - offset - limit + 1);
+        const end = total - offset;
         if (start > end) return resolve([]);
+
         const f = this.imap!.seq.fetch(`${start}:${end}`, { bodies: "" });
         const emails: ImapEmail[] = [];
-        let pending = 0; let finished = false;
+        let fetched = 0;
+        const expected = end - start + 1;
+
         f.on("message", (msg, seqno) => {
-          pending++;
           let email: ImapEmail = { uid: 0, seqno, from: "", subject: "", text: "", html: "", date: new Date(), flags: [], attachments: [] };
-          msg.on("attributes", (attrs) => { email.uid = attrs.uid; email.flags = attrs.flags; });
+          
+          msg.on("attributes", (attrs) => {
+            email.uid = attrs.uid;
+            email.flags = attrs.flags;
+          });
+
           msg.on("body", (stream) => {
             simpleParser(stream, (err, parsed) => {
               if (!err && parsed) {
-                email.from = parsed.from?.text || ""; email.subject = parsed.subject || "";
-                email.text = parsed.text || ""; email.html = parsed.html || ""; email.date = parsed.date || new Date();
+                email.from = parsed.from?.text || "";
+                email.subject = parsed.subject || "";
+                email.text = parsed.text || "";
+                email.html = parsed.html || "";
+                email.date = parsed.date || new Date();
                 if (parsed.attachments) {
-                  email.attachments = parsed.attachments.map((att: any, idx: number) => ({
-                    partId: (idx + 1).toString(), filename: att.filename || "unnamed", contentType: att.contentType, size: att.size,
+                  email.attachments = parsed.attachments.map((a, i) => ({
+                    partId: (i + 1).toString(), filename: a.filename || "unnamed", contentType: a.contentType, size: a.size
                   }));
                 }
               }
-              emails.push(email); pending--;
-              if (finished && pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid));
+              emails.push(email);
+              fetched++;
+              if (fetched === expected) resolve(emails.sort((a,b) => b.seqno - a.seqno));
             });
           });
         });
-        f.on("end", () => { finished = true; if (pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid)); });
-        f.on("error", reject);
+
+        f.on("error", (err) => { console.error("Fetch error:", err); reject(err); });
+        f.on("end", () => {
+          setTimeout(() => { // Small timeout to catch last parser results
+            if (fetched < expected) resolve(emails.sort((a,b) => b.seqno - a.seqno));
+          }, 500);
+        });
       });
     });
   }
 
   async getEmail(folderName: string, uid: number): Promise<ImapEmail> {
-    if (!this.imap) throw new Error("Not connected to IMAP");
+    if (!this.imap) throw new Error("Not connected");
     return new Promise((resolve, reject) => {
       this.imap!.openBox(folderName, false, (err) => {
         if (err) return reject(err);
         const f = this.imap!.fetch(uid, { bodies: "" });
-        let email: ImapEmail | null = null; let pending = 0;
+        let email: ImapEmail | null = null;
         f.on("message", (msg, seqno) => {
-          pending++;
           email = { uid, seqno, from: "", subject: "", text: "", html: "", date: new Date(), flags: [], attachments: [] };
           msg.on("attributes", (attrs) => { if(email) email.flags = attrs.flags; });
           msg.on("body", (stream) => {
@@ -153,34 +173,31 @@ export class ImapService {
                 email.from = parsed.from?.text || ""; email.subject = parsed.subject || "";
                 email.text = parsed.text || ""; email.html = parsed.html || ""; email.date = parsed.date || new Date();
                 if (parsed.attachments) {
-                  email.attachments = parsed.attachments.map((att: any, idx: number) => ({
-                    partId: (idx + 1).toString(), filename: att.filename || "unnamed", contentType: att.contentType, size: att.size, content: att.content,
+                  email.attachments = parsed.attachments.map((a, i) => ({
+                    partId: (i + 1).toString(), filename: a.filename || "unnamed", contentType: a.contentType, size: a.size, content: a.content
                   }));
                 }
               }
-              pending--;
-              if (pending === 0 && email) resolve(email);
+              resolve(email!);
             });
           });
         });
-        f.on("end", () => { if (pending === 0 && email) resolve(email); });
         f.on("error", reject);
       });
     });
   }
 
   async searchEmails(folderName: string, query: string): Promise<ImapEmail[]> {
-    if (!this.imap) throw new Error("Not connected to IMAP");
+    if (!this.imap) throw new Error("Not connected");
     return new Promise((resolve, reject) => {
       this.imap!.openBox(folderName, true, (err) => {
-        if (err) return reject(err);
+        if (err) return resolve([]);
         this.imap!.search([['OR', ['SUBJECT', query], ['FROM', query]]], (err, uids) => {
-          if (err) return reject(err);
-          if (uids.length === 0) return resolve([]);
+          if (err || !uids.length) return resolve([]);
           const f = this.imap!.fetch(uids, { bodies: "" });
-          const emails: ImapEmail[] = []; let pending = 0; let finished = false;
+          const emails: ImapEmail[] = [];
+          let fetched = 0;
           f.on("message", (msg, seqno) => {
-            pending++;
             let e: ImapEmail = { uid: 0, seqno, from: "", subject: "", text: "", html: "", date: new Date(), flags: [], attachments: [] };
             msg.on("attributes", (attrs) => { e.uid = attrs.uid; e.flags = attrs.flags; });
             msg.on("body", (stream) => {
@@ -189,65 +206,51 @@ export class ImapService {
                   e.from = parsed.from?.text || ""; e.subject = parsed.subject || "";
                   e.text = parsed.text || ""; e.html = parsed.html || ""; e.date = parsed.date || new Date();
                 }
-                emails.push(e); pending--;
-                if (finished && pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid));
+                emails.push(e); fetched++;
+                if (fetched === uids.length) resolve(emails.sort((a,b) => b.uid - a.uid));
               });
             });
           });
-          f.on("end", () => { finished = true; if (pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid)); });
-          f.on("error", reject);
+          f.on("end", () => { setTimeout(() => resolve(emails.sort((a,b) => b.uid - a.uid)), 500); });
         });
       });
     });
   }
 
-  async setFlag(folderName: string, uid: number, flag: string, value: boolean): Promise<void> {
-    if (!this.imap) throw new Error("Not connected to IMAP");
+  async setFlag(folder: string, uid: number, flag: string, val: boolean): Promise<void> {
+    if (!this.imap) throw new Error("Not connected");
     return new Promise((resolve, reject) => {
-      this.imap!.openBox(folderName, false, (err) => {
+      this.imap!.openBox(folder, false, (err) => {
         if (err) return reject(err);
-        const method = value ? "addFlags" : "delFlags";
-        this.imap![method](uid, [flag], (err) => {
-          if (err) reject(err);
-          else resolve();
+        this.imap![val ? "addFlags" : "delFlags"](uid, [flag], (err) => {
+          if (err) reject(err); else resolve();
         });
       });
     });
   }
 
-  async markAsRead(folderName: string, uid: number): Promise<void> {
-    return this.setFlag(folderName, uid, "\\Seen", true);
-  }
+  async markAsRead(folder: string, uid: number): Promise<void> { return this.setFlag(folder, uid, "\\Seen", true); }
+  async toggleStar(folder: string, uid: number, val: boolean): Promise<void> { return this.setFlag(folder, uid, "\\Flagged", val); }
 
-  async toggleStar(folderName: string, uid: number, value: boolean): Promise<void> {
-    return this.setFlag(folderName, uid, "\\Flagged", value);
-  }
-
-  async deleteEmail(folderName: string, uid: number): Promise<void> {
-    if (!this.imap) throw new Error("Not connected to IMAP");
+  async deleteEmail(folder: string, uid: number): Promise<void> {
+    if (!this.imap) throw new Error("Not connected");
     return new Promise((resolve, reject) => {
-      this.imap!.openBox(folderName, false, (err) => {
+      this.imap!.openBox(folder, false, (err) => {
         if (err) return reject(err);
         this.imap!.addFlags(uid, ["\\Deleted"], (err) => {
           if (err) return reject(err);
-          this.imap!.expunge((err) => {
-            if (err) reject(err);
-            else resolve();
-          });
+          this.imap!.expunge((err) => { if (err) reject(err); else resolve(); });
         });
       });
     });
   }
 
-  async moveEmail(fromFolder: string, toFolder: string, uid: number): Promise<void> {
-    if (!this.imap) throw new Error("Not connected to IMAP");
+  async moveEmail(from: string, to: string, uid: number): Promise<void> {
+    if (!this.imap) throw new Error("Not connected");
     return new Promise((resolve, reject) => {
-      this.imap!.openBox(fromFolder, false, (err) => {
+      this.imap!.openBox(from, false, (err) => {
         if (err) return reject(err);
-        this.imap!.move(uid, toFolder, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
+        this.imap!.move(uid, to, (err) => { if (err) reject(err); else resolve(); });
       });
     });
   }
