@@ -91,7 +91,9 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
       <div className="message-list-header">
         <div className="message-list-header-meta">
           <h2>{folder === "INBOX" ? "Bandeja de Entrada" : folder}</h2>
-          <span className="email-count-badge">{emails.length} mensajes</span>
+          {!loading && (
+            <span className="email-count-badge">{emails.length} mensajes</span>
+          )}
         </div>
         
         <form className="search-bar" onSubmit={handleSearch}>
@@ -155,7 +157,7 @@ export default function MessageList({ folder, onSelectEmail }: MessageListProps)
           </button>
           <span className="page-indicator">Página {page + 1}</span>
           <button 
-            disabled={emails.length < limit} 
+            disabled={!loading && emails.length < limit} 
             onClick={() => setPage(page + 1)}
             className="pagination-btn"
           >

@@ -117,6 +117,7 @@ export class ImapService {
     if (!this.imap) throw new Error("Not connected to IMAP");
 
     return new Promise((resolve, reject) => {
+      // Use false for read-write to allow marking as seen if needed, but fetch usually is read-only
       this.imap!.openBox(folderName, true, (err, mailbox) => {
         if (err) return reject(err);
 
@@ -135,17 +136,7 @@ export class ImapService {
 
         f.on("message", (msg, seqno) => {
           pending++;
-          let email: ImapEmail = {
-            uid: 0,
-            seqno,
-            from: "",
-            subject: "",
-            text: "",
-            html: "",
-            date: new Date(),
-            flags: [],
-            attachments: [],
-          };
+          let email: ImapEmail = { uid: 0, seqno, from: "", subject: "", text: "", html: "", date: new Date(), flags: [], attachments: [] };
 
           msg.on("attributes", (attrs) => {
             email.uid = attrs.uid;
@@ -160,7 +151,6 @@ export class ImapService {
                 email.text = parsed.text || "";
                 email.html = parsed.html || "";
                 email.date = parsed.date || new Date();
-                
                 if (parsed.attachments) {
                   email.attachments = parsed.attachments.map((att: any, idx: number) => ({
                     partId: (idx + 1).toString(),
@@ -172,7 +162,7 @@ export class ImapService {
               }
               emails.push(email);
               pending--;
-              if (finished && pending === 0) resolve(emails.reverse());
+              if (finished && pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid));
             });
           });
         });
@@ -180,7 +170,7 @@ export class ImapService {
         f.on("error", reject);
         f.on("end", () => {
           finished = true;
-          if (pending === 0) resolve(emails.reverse());
+          if (pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid));
         });
       });
     });
@@ -190,7 +180,8 @@ export class ImapService {
     if (!this.imap) throw new Error("Not connected to IMAP");
 
     return new Promise((resolve, reject) => {
-      this.imap!.openBox(folderName, true, (err) => {
+      // Crucial: set readOnly to false to allow marking as read
+      this.imap!.openBox(folderName, false, (err) => {
         if (err) return reject(err);
 
         const f = this.imap!.fetch(uid, { bodies: "" });
@@ -215,12 +206,12 @@ export class ImapService {
                     filename: att.filename || "unnamed",
                     contentType: att.contentType,
                     size: att.size,
-                    content: att.content, // Include content for single fetch if needed
+                    content: att.content,
                   }));
                 }
               }
               pending--;
-              if (pending === 0) resolve(email!);
+              if (pending === 0 && email) resolve(email);
             });
           });
         });
@@ -254,11 +245,11 @@ export class ImapService {
                   e.text = parsed.text || ""; e.html = parsed.html || ""; e.date = parsed.date || new Date();
                 }
                 emails.push(e); pending--;
-                if (finished && pending === 0) resolve(emails.reverse());
+                if (finished && pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid));
               });
             });
           });
-          f.on("end", () => { finished = true; if (pending === 0) resolve(emails.reverse()); });
+          f.on("end", () => { finished = true; if (pending === 0) resolve(emails.sort((a,b) => b.uid - a.uid)); });
           f.on("error", reject);
         });
       });
